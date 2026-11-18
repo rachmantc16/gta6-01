@@ -1,53 +1,66 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// input.js — keyboard and mouse state for the game. The rest of the code
+// asks questions ("is E down?", "was Space just pressed?") instead of
+// listening to events itself, which keeps the game loop readable and makes
+// scripted screenshot scenes easy to drive.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+const held = new Set();
+const pressed = new Set(); // keys that went down since the last frame
+const released = new Set();
+let mouseX = 0;
+let mouseY = 0;
+let mouseDown = false;
+let mouseClicked = false;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+const GAME_KEYS = new Set([
+  'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ',
+  'w', 'a', 's', 'd', 'e', 'f', 'p', 'm', 'enter', 'escape', 'shift',
+]);
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
-
+export function initInput(canvas) {
   window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
+    const key = event.key.toLowerCase();
+    if (GAME_KEYS.has(key)) event.preventDefault();
+    if (!event.repeat) pressed.add(key);
+    held.add(key);
   });
   window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
+    const key = event.key.toLowerCase();
+    held.delete(key);
+    released.add(key);
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
   window.addEventListener('blur', () => {
-    left = false;
-    right = false;
+    held.clear();
+    mouseDown = false;
   });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
+  canvas.addEventListener('mousemove', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = event.clientX - rect.left;
+    mouseY = event.clientY - rect.top;
   });
+  canvas.addEventListener('mousedown', () => {
+    mouseDown = true;
+    mouseClicked = true;
+  });
+  window.addEventListener('mouseup', () => {
+    mouseDown = false;
+  });
+}
 
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+export const isDown = (key) => held.has(key);
+export const justPressed = (key) => pressed.has(key);
+export const justReleased = (key) => released.has(key);
+export const pointer = () => ({ x: mouseX, y: mouseY, down: mouseDown, clicked: mouseClicked });
+
+// Called once at the end of every frame: edge triggers live for one frame.
+export function endFrame() {
+  pressed.clear();
+  released.clear();
+  mouseClicked = false;
+}
+
+// Movement axes from either WASD or the arrow keys, as -1..1 pairs.
+export function moveAxes() {
+  const x = (isDown('d') || isDown('arrowright') ? 1 : 0) - (isDown('a') || isDown('arrowleft') ? 1 : 0);
+  const y = (isDown('s') || isDown('arrowdown') ? 1 : 0) - (isDown('w') || isDown('arrowup') ? 1 : 0);
+  return { x, y };
 }
